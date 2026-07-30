@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+.python-version
+
+# Bicep / ARM build artifacts
+*.bicepparam.local.json
+main.json
+
+# Azure Functions / Logic Apps runtime
+local.settings.json
+bin/
+obj/
+.azurefunctions/
+workflow-logs/
+
+# Zip bundles
+*.zip
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

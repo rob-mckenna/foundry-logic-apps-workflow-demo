@@ -1,0 +1,89 @@
+openapi: 3.1.0
+info:
+  title: Prior Authorization Status API
+  description: |
+    Look up the status of a prior authorization (PA) and, if the PA has been
+    Pending for more than 3 business days, automatically open a ServiceNow
+    escalation ticket and notify the assigned reviewer. Backed by an Azure
+    Logic Apps Standard workflow.
+  version: 1.0.0
+servers:
+  - url: https://${LOGIC_APP_HOSTNAME}/api/check-prior-auth-status
+    description: Standard Logic App hostname (populated by deploy.ps1).
+paths:
+  /:
+    post:
+      operationId: check_prior_auth_status
+      summary: Look up a prior authorization by ID and escalate if past SLA.
+      description: |
+        Returns the current status of a prior authorization. If the PA is
+        Pending and has been outstanding more than 3 business days, the
+        workflow opens a ServiceNow-style escalation ticket and notifies
+        the assigned clinical reviewer before returning.
+      security:
+        - azureAd: [api://prior-auth-api/.default]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CheckPriorAuthRequest'
+      responses:
+        '200':
+          description: PA found. Response includes summary + escalation status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckPriorAuthResponse'
+        '404':
+          description: PA not found in the dataset.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotFound'
+components:
+  securitySchemes:
+    azureAd:
+      type: oauth2
+      description: Microsoft Entra ID client-credentials flow using managed identity.
+      flows:
+        clientCredentials:
+          tokenUrl: https://login.microsoftonline.com/${TENANT_ID}/oauth2/v2.0/token
+          scopes:
+            api://prior-auth-api/.default: Call the check-prior-auth-status workflow
+  schemas:
+    CheckPriorAuthRequest:
+      type: object
+      required: [priorAuthId]
+      properties:
+        priorAuthId:
+          type: string
+          description: PA reference, e.g. PA-2026-88421.
+          pattern: '^PA-\d{4}-\d{4,6}$'
+        memberId:
+          type: string
+          description: Synthetic member ID, e.g. M-99231.
+        requestingProvider:
+          type: string
+          description: NPI or free-text provider name.
+    CheckPriorAuthResponse:
+      type: object
+      required: [priorAuthId, status, daysOutstanding, escalated, summary]
+      properties:
+        priorAuthId:      { type: string }
+        status:           { type: string, enum: [Pending, Approved, Denied] }
+        drug:             { type: string }
+        memberId:         { type: string }
+        submittedDate:    { type: string, format: date }
+        daysOutstanding:  { type: integer }
+        escalated:        { type: boolean }
+        escalationTicket: { type: [string, "null"] }
+        assignedReviewer: { type: [string, "null"] }
+        nextStepSlaHours: { type: [integer, "null"] }
+        denialReason:     { type: [string, "null"] }
+        summary:          { type: string, description: One-sentence natural-language summary the agent can narrate. }
+    NotFound:
+      type: object
+      properties:
+        error:       { type: string }
+        priorAuthId: { type: string }

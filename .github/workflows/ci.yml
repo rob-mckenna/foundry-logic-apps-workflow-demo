@@ -1,0 +1,41 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  bicep:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Bicep CLI
+        run: az bicep install
+      - name: Build Bicep
+        run: az bicep build --file infra/main.bicep
+
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install linters
+        run: pip install ruff==0.6.9
+      - name: Ruff
+        run: ruff check agent/
+
+  workflow-json:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate workflow.json is valid JSON
+        run: |
+          python -c "import json,sys; json.load(open('workflows/prior-auth-status-check/workflow.json'))"
+      - name: Validate OpenAPI spec parses as YAML
+        run: |
+          python -m pip install --quiet pyyaml
+          python -c "import yaml,sys; yaml.safe_load(open('workflows/prior-auth-status-check/openapi.yaml'))"

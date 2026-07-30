@@ -1,0 +1,19 @@
+{
+  "type": "object",
+  "properties": {
+    "priorAuthId": {
+      "type": "string",
+      "description": "Prior authorization reference, e.g. PA-2026-88421. Format: PA-YYYY-NNNNN.",
+      "pattern": "^PA-\\d{4}-\\d{4,6}$"
+    },
+    "memberId": {
+      "type": "string",
+      "description": "Synthetic health plan / PBM member ID, e.g. M-99231."
+    },
+    "requestingProvider": {
+      "type": "string",
+      "description": "Prescribing provider NPI or name (free text)."
+    }
+  },
+  "required": ["priorAuthId"]
+}
