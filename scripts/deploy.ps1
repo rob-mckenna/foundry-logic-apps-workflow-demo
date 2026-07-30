@@ -63,6 +63,16 @@ $deployment = az deployment group create `
         serviceNowUrl=$ServiceNowUrl `
     --output json | ConvertFrom-Json
 
+if (-not $deployment -or -not $deployment.properties -or $deployment.properties.provisioningState -ne 'Succeeded') {
+    Write-Host 'Deployment failed. Recent operation errors:' -ForegroundColor Red
+    az deployment operation group list `
+        --resource-group $ResourceGroupName `
+        --name $deployName `
+        --query "[?properties.provisioningState=='Failed'].{resource:properties.targetResource.id, code:properties.statusMessage.error.code, msg:properties.statusMessage.error.message}" `
+        -o json | Write-Host
+    throw "Bicep deployment '$deployName' did not succeed."
+}
+
 $outputs           = $deployment.properties.outputs
 $logicAppName      = $outputs.logicAppName.value
 $logicAppHost      = $outputs.logicAppHostname.value
@@ -81,7 +91,7 @@ Write-Step 3 "Ensuring Entra app '$AppRegistrationName' exists with role '$AppRo
 $existingApp = az ad app list --display-name $AppRegistrationName --query "[0]" -o json | ConvertFrom-Json
 
 if (-not $existingApp) {
-    Write-Host '  Creating app registration'
+    Write-Host '  Creating app registration (without identifier URI — will set to api://<appId> after)'
     $appRoleId = [Guid]::NewGuid().ToString()
     $appRoles = @(
         @{
@@ -98,16 +108,23 @@ if (-not $existingApp) {
 
     $newApp = az ad app create `
         --display-name $AppRegistrationName `
-        --identifier-uris "api://$AppRegistrationName" `
         --app-roles "@$rolesFile" `
         --output json | ConvertFrom-Json
     Remove-Item $rolesFile -Force
     $appObjectId = $newApp.id
     $appId       = $newApp.appId
+
+    Write-Host "  Setting identifier URI to api://$appId"
+    az ad app update --id $appObjectId --identifier-uris "api://$appId" | Out-Null
 } else {
     $appObjectId = $existingApp.id
     $appId       = $existingApp.appId
     Write-Host "  Reusing existing app registration $appId"
+
+    if (-not ($existingApp.identifierUris | Where-Object { $_ -eq "api://$appId" })) {
+        Write-Host "  Adding identifier URI api://$appId"
+        az ad app update --id $appObjectId --identifier-uris "api://$appId" | Out-Null
+    }
 
     $hasRole = $existingApp.appRoles | Where-Object { $_.value -eq $AppRoleValue }
     if (-not $hasRole) {
@@ -127,6 +144,8 @@ if (-not $existingApp) {
         Remove-Item $rolesFile -Force
     }
 }
+
+$audience = "api://$appId"
 
 Write-Step '3a' 'Ensuring service principal for the app registration'
 $apiSp = az ad sp list --filter "appId eq '$appId'" --query "[0]" -o json | ConvertFrom-Json
@@ -186,15 +205,18 @@ Remove-Item $patchFile -Force
 Write-Host '  Foundry project patched.'
 
 # ---------------------------------------------------------------------------
-# 6. Substitute ${TENANT_ID} in workflow.json
+# 6. Substitute ${TENANT_ID} and ${AUDIENCE} in workflow.json
 # ---------------------------------------------------------------------------
-Write-Step 6 'Substituting tenant ID into workflow.json Authorization Policy'
+Write-Step 6 'Substituting tenant ID and audience into workflow.json Authorization Policy'
 $stagingDir  = Join-Path $env:TEMP "la-stage-$([Guid]::NewGuid())"
 $stageInner  = Join-Path $stagingDir 'check-prior-auth-status'
 New-Item -ItemType Directory -Force -Path $stageInner | Out-Null
 
 $workflowText = Get-Content (Join-Path $WorkflowDir 'workflow.json') -Raw
 $workflowText = $workflowText.Replace('${TENANT_ID}', $tenantId)
+$workflowText = $workflowText.Replace('${AUDIENCE}', $audience)
+# Backwards compat: the initial repo hardcoded api://prior-auth-api; keep replacing that too.
+$workflowText = $workflowText.Replace('api://prior-auth-api', $audience)
 $workflowText | Out-File -Encoding utf8 (Join-Path $stageInner 'workflow.json')
 
 Copy-Item (Join-Path $WorkflowDir 'host.json')        (Join-Path $stagingDir 'host.json')
@@ -222,16 +244,29 @@ Write-Host '  Workflow deployed.'
 # ---------------------------------------------------------------------------
 # Fetch the Foundry project endpoint for the agent SDK
 $foundry = az resource show --ids $FoundryProjectResourceId --query 'properties' -o json | ConvertFrom-Json
-$projectEndpoint = $foundry.endpoints.'Microsoft Foundry API'
+$projectEndpoint = $foundry.endpoints.'AI Foundry API'
+if (-not $projectEndpoint) { $projectEndpoint = $foundry.endpoints.'Microsoft Foundry API' }
 if (-not $projectEndpoint) { $projectEndpoint = "<see Foundry portal → project → Overview>" }
 
 Write-Host "`n============================================================"
 Write-Host 'Copy these into agent\.env:' -ForegroundColor Green
 Write-Host "============================================================"
 Write-Host "FOUNDRY_PROJECT_ENDPOINT=$projectEndpoint"
-Write-Host 'MODEL_DEPLOYMENT_NAME=gpt-4.1-mini'
+Write-Host 'MODEL_DEPLOYMENT_NAME=gpt-5-mini'
 Write-Host "LOGIC_APP_HOSTNAME=$logicAppHost"
 Write-Host "TENANT_ID=$tenantId"
-Write-Host "AUDIENCE=api://$AppRegistrationName"
+Write-Host "AUDIENCE=$audience"
 Write-Host 'AGENT_NAME=prior-auth-assistant'
 Write-Host "============================================================`n"
+
+# Auto-write agent/.env so the next step doesn't need manual copy/paste.
+$envFile = Join-Path (Split-Path -Parent $PSScriptRoot) 'agent\.env'
+@"
+FOUNDRY_PROJECT_ENDPOINT=$projectEndpoint
+MODEL_DEPLOYMENT_NAME=gpt-5-mini
+LOGIC_APP_HOSTNAME=$logicAppHost
+TENANT_ID=$tenantId
+AUDIENCE=$audience
+AGENT_NAME=prior-auth-assistant
+"@ | Out-File -Encoding utf8 $envFile
+Write-Host "Wrote $envFile" -ForegroundColor Green

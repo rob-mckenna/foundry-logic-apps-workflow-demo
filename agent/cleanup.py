@@ -24,7 +24,7 @@ def main() -> int:
 
     name = os.environ["AGENT_NAME"]
     try:
-        client.agents.delete_agent(name)
+        client.agents.delete(agent_name=name)
         print(f"Deleted agent: {name}")
     except Exception as exc:  # noqa: BLE001
         print(f"Could not delete agent {name!r}: {exc}", file=sys.stderr)

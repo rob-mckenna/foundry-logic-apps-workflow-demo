@@ -25,6 +25,7 @@ from dotenv import load_dotenv
 from azure.ai.projects import AIProjectClient
 from azure.ai.projects.models import (
     OpenApiTool,
+    OpenApiFunctionDefinition,
     OpenApiManagedAuthDetails,
     OpenApiManagedSecurityScheme,
     PromptAgentDefinition,
@@ -33,7 +34,12 @@ from azure.identity import DefaultAzureCredential
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-OPENAPI_PATH = REPO_ROOT / "workflows" / "prior-auth-status-check" / "openapi.yaml"
+DEFAULT_OPENAPI_PATH = REPO_ROOT / "workflows" / "prior-auth-status-check" / "openapi.yaml"
+
+
+def _openapi_path() -> Path:
+    """Resolve after load_dotenv has populated the environment."""
+    return Path(os.environ.get("OPENAPI_PATH", str(DEFAULT_OPENAPI_PATH)))
 
 AGENT_INSTRUCTIONS = """You are a prior authorization assistant for a pharmacy benefit manager (PBM).
 
@@ -55,10 +61,12 @@ All data in this system is synthetic — this is a technical demonstration.
 
 
 def _load_openapi() -> dict:
-    text = OPENAPI_PATH.read_text(encoding="utf-8")
+    path = _openapi_path()
+    print(f"Loading OpenAPI spec from: {path}")
+    text = path.read_text(encoding="utf-8")
     substituted = Template(text).safe_substitute(
-        LOGIC_APP_HOSTNAME=os.environ["LOGIC_APP_HOSTNAME"],
-        TENANT_ID=os.environ["TENANT_ID"],
+        LOGIC_APP_HOSTNAME=os.environ.get("LOGIC_APP_HOSTNAME", ""),
+        TENANT_ID=os.environ.get("TENANT_ID", ""),
     )
     return yaml.safe_load(substituted)
 
@@ -79,16 +87,18 @@ def main() -> int:
     )
 
     tool = OpenApiTool(
-        name="check_prior_auth_status",
-        description=(
-            "Look up a prior authorization by ID and, if it has been "
-            "Pending more than 3 business days, escalate it. Returns "
-            "current status, days outstanding, and escalation info."
-        ),
-        spec=spec,
-        auth=OpenApiManagedAuthDetails(
-            security_scheme=OpenApiManagedSecurityScheme(
-                audience=os.environ["AUDIENCE"],
+        openapi=OpenApiFunctionDefinition(
+            name="check_prior_auth_status",
+            description=(
+                "Look up a prior authorization by ID and, if it has been "
+                "Pending more than 3 business days, escalate it. Returns "
+                "current status, days outstanding, and escalation info."
+            ),
+            spec=spec,
+            auth=OpenApiManagedAuthDetails(
+                security_scheme=OpenApiManagedSecurityScheme(
+                    audience=os.environ["AUDIENCE"],
+                ),
             ),
         ),
     )

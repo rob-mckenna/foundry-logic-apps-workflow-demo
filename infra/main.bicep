@@ -149,7 +149,6 @@ resource diag 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {
     logs: [
       { category: 'FunctionAppLogs',        enabled: true }
       { category: 'WorkflowRuntime',        enabled: true }
-      { category: 'AppServiceHTTPLogs',     enabled: true }
     ]
     metrics: [ { category: 'AllMetrics', enabled: true } ]
   }
