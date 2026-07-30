@@ -25,7 +25,7 @@ param(
     [string] $AppRoleValue        = 'PriorAuth.Read',
     [string] $TeamsWebhookUrl     = '',
     [string] $ServiceNowUrl       = 'https://httpbin.org/post',
-    [string] $ModelDeploymentName = 'gpt-5-mini',
+    [string] $ModelDeploymentName = 'gpt-4.1',
     [string] $AgentName           = 'prior-auth-assistant'
 )
 

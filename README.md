@@ -91,7 +91,7 @@ Full narrative and Mermaid diagram: [`docs/architecture.md`](docs/architecture.m
 
 - Azure subscription with **Owner** on the target resource group.
 - Microsoft Foundry project (new Foundry Agent Service — not Foundry classic).
-- Tool-capable model deployed in that project (e.g. `gpt-5-mini`, `gpt-4.1-mini`, `gpt-4o`).
+- **Model deployment**: `gpt-4.1` recommended (verified OpenAPI tool support in Foundry portal). `gpt-4o`, `gpt-4.1-mini`, and `gpt-5` family also work. `gpt-5-mini` functions via SDK but the Foundry portal flags it as "Not supported by the selected model" for OpenAPI tools.
 - Local tooling: Azure CLI ≥ `2.63`, Bicep, PowerShell 7, Python 3.10+.
 
 ## Quick start — Consumption variant (recommended)
