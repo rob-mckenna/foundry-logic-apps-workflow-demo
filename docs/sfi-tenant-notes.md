@@ -1,21 +1,21 @@
-# SFI tenant notes
+# Deploying in policy-governed Azure environments
 
 ## Why there are two variants
 
-Microsoft's **Secure Future Initiative (SFI)** applies management-group-scoped Azure Policies that enforce a stricter default posture on every storage account in the tenant. Two of these policies specifically break the classical Standard-plan Logic Apps deployment pattern:
+Enterprise Azure environments may enforce Azure Policies that disable storage shared-key authentication or restrict public network access. These controls can affect Standard-plan Logic Apps deployments that use connection-string-based storage or public storage endpoints. Policy names, assignment scopes, effects, and exemption processes vary by organization.
 
-| Policy | Effect | Impact on Standard LA |
+| Storage control | Effective setting | Impact on Standard LA |
 |---|---|---|
-| `StorageAccount_DisableLocalAuth_Modify` (SFI-ID4.2.1) | Forces `allowSharedKeyAccess=false` on every storage account | Blocks the classic `AzureWebJobsStorage=<connection-string>` and `WEBSITE_CONTENTAZUREFILECONNECTIONSTRING=<...>` app settings that Standard LA relies on. |
-| `StorageAccount_PublicNetwork_Modify` | Forces `publicNetworkAccess=Disabled` (unless the value is `SecuredByPerimeter`) | Blocks any traffic to the storage account from anywhere other than a private endpoint or a Network Security Perimeter. Standard LA runs on shared App Service infrastructure — public reach is off. |
+| Shared-key authentication disabled | `allowSharedKeyAccess=false` | Prevents shared-key authentication used by classic `AzureWebJobsStorage=<connection-string>` and `WEBSITE_CONTENTAZUREFILECONNECTIONSTRING=<...>` configurations. |
+| Public network access disabled | `publicNetworkAccess=Disabled` | Prevents access through public storage endpoints. The Standard LA runtime needs private connectivity to the storage account. |
 
-Both policies use `modify` effect — they don't just audit, they *silently rewrite* the setting on every API call to the resource. Setting `allowSharedKeyAccess=true` "succeeds" but the value reads back as `false` immediately.
+Policies with a `modify` effect can change applicable resource properties during create or update operations. For example, a request to set `allowSharedKeyAccess=true` may succeed while the effective value remains `false`. Other assignments may deny changes or audit configuration instead. Inspect the applicable definitions, parameters, and effective resource settings rather than relying on policy names.
 
 ## Design implications by variant
 
 ### Variant A — Consumption Logic App (recommended demo path)
 
-Consumption LAs run entirely on **Microsoft-managed infrastructure**. You never provision a storage account, an App Service plan, or a site. Both SFI policies simply don't apply.
+Consumption LAs run entirely on **Microsoft-managed infrastructure**. This variant does not provision a customer-managed runtime storage account, an App Service plan, or a site, so the storage controls described above do not apply to a runtime storage account in your subscription. Other organizational policies may still affect deployment.
 
 You still get:
 - Entra ID Authorization Policy on the Request trigger (`accessControl.triggers.openAuthenticationPolicies.policies.AadPolicy`)
@@ -28,11 +28,11 @@ You give up:
 - Long-running (>1 minute) synchronous responses
 - Some connectors that are Standard-only
 
-**For the demo, this is the winning choice.** It works in any SFI tenant with zero policy fights.
+**For the demo, this is the recommended choice.** It avoids the customer-managed runtime storage requirements of Standard LA, but deployment remains subject to your organization's applicable policies.
 
-### Variant B — Standard Logic App (WS1), SFI-compliant
+### Variant B — Standard Logic App (WS1), restricted storage considerations
 
-To ship Standard LA in an SFI tenant, you need three additional pieces on top of the base repo Bicep:
+When shared-key authentication and public storage access are both disabled, Standard LA needs the following configuration considerations alongside the base repo Bicep. These are deployment guidance, not a compliance certification; confirm requirements with your organization's policy owners.
 
 1. **Identity-based `AzureWebJobsStorage`** using Logic-Apps-specific setting names:
     ```
@@ -53,27 +53,27 @@ Roles the identity needs on the storage account:
 
 RBAC propagation to the storage plane can take **5–15 minutes** after assignment. Set roles at the Bicep-deploy stage, wait, then start the app.
 
-## How to identify SFI policies in your tenant
+## How to identify applicable policies in your environment
 
 ```powershell
-# List modify policies at MG scope for storage
+# List policy-state results with a modify action for resources in the resource group
 az policy state list --resource-group <rg> `
     --query "[?policyDefinitionAction=='modify'].{def:policyDefinitionName, assign:policyAssignmentName}" `
     -o table
 
 # Read a specific policy definition at the MG scope
-az policy definition show --name StorageAccount_DisableLocalAuth_Modify `
+az policy definition show --name <policy-definition-name> `
     --management-group <mg-id> `
     --query "{name:name, displayName:displayName, description:description, effect:policyRule.then.effect}" `
     -o json
 ```
 
-Look for policies under the `MCAPSGovDeployPolicies` assignment or any assignment with `SFI` in the display name.
+Use your environment's policy definition name and management-group ID in the example above. For definitions at a different scope, use the corresponding scope option. The policy-state query shows evaluation results, not a complete inventory of assignments. Review applicable assignments, including those inherited from management groups and subscriptions, along with their definitions, parameters, effects, and exemptions. Check the storage account's effective `allowSharedKeyAccess` and `publicNetworkAccess` settings; do not rely on assignment display names.
 
-## Escape hatches for Standard LA in policy-locked tenants
+## Approved exceptions and alternative deployment options
 
-Not applicable to the demo, but useful references for productionizing:
+These options are not required for the recommended Consumption demo path. For production planning, prefer an architecture that satisfies applicable controls and work with your organization's policy owners before pursuing an exception:
 
-- **Policy exemption**: `Resource Policy Contributor` at RG scope can create a categorized exemption (Waiver / Mitigated). Documents the risk acceptance. Not appropriate for the SFI storage policies without a strong business case.
-- **Network Security Perimeter (`SecuredByPerimeter`)**: Add the storage account to an NSP that also includes the Logic App. Preview feature.
-- **Deploy in a subscription outside the enforcing management group**: the cleanest path if you can arrange it.
+- **Policy exemption**: Where approved, use a documented exemption (Waiver / Mitigated) with the required permissions, scope, and risk acceptance. Confirm the approval process with policy owners.
+- **Network Security Perimeter (`SecuredByPerimeter`)**: Evaluate only where current service support and organizational policy permit it. Do not assume it replaces the Standard LA private connectivity requirements described above.
+- **Alternative deployment scope**: Use another subscription or management-group scope only when explicitly approved by your organization's governance owners, not as a way to bypass controls.

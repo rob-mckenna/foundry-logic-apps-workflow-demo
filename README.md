@@ -8,12 +8,12 @@ The demo scenario is a **healthcare payer / pharmacy-benefit-manager (PBM)** pri
 
 ## Two deployment variants
 
-The repo ships **two** Logic App variants because SFI (Secure Future Initiative) tenants enforce policies that break the naïve Standard-plan pattern:
+The repo ships **two** Logic App variants to support different hosting and governance requirements. Enterprise Azure environments may enforce storage controls that affect connection-string-based or public-endpoint Standard-plan configurations. See [`docs/sfi-tenant-notes.md`](docs/sfi-tenant-notes.md) for policy considerations.
 
-| Variant | File | When to use | SFI-clean out of the box? |
+| Variant | File | When to use | Storage policy considerations |
 |---|---|---|---|
-| **Consumption Logic App** (recommended demo path) | [`infra/main-consumption.bicep`](infra/main-consumption.bicep) | Fastest path to a live demo. Multitenant runtime — Microsoft manages storage, so `StorageAccount_DisableLocalAuth_Modify` and `StorageAccount_PublicNetwork_Modify` don't apply. | ✅ Yes |
-| **Standard Logic App (WS1)** (production-shaped) | [`infra/main.bicep`](infra/main.bicep) + [`workflows/prior-auth-status-check/`](workflows/prior-auth-status-check) | Production posture in SFI-locked tenants. Requires **identity-based storage** *and* **VNet integration + Private Endpoint** on the storage account (see [`docs/vnet-hardening.md`](docs/vnet-hardening.md)). | ⚠️ Requires VNet + PE |
+| **Consumption Logic App** (recommended demo path) | [`infra/main-consumption.bicep`](infra/main-consumption.bicep) | Fastest path to a live demo. Multitenant runtime with Microsoft-managed storage. | No customer-managed runtime storage account; other organizational policies still apply. |
+| **Standard Logic App (WS1)** (production-shaped) | [`infra/main.bicep`](infra/main.bicep) + [`workflows/prior-auth-status-check/`](workflows/prior-auth-status-check) | Single-tenant hosting with additional storage and networking considerations (see [`docs/vnet-hardening.md`](docs/vnet-hardening.md)). | When shared-key authentication and public storage access are disabled, requires **identity-based storage** and **VNet integration + Private Endpoint**. |
 
 **Both variants** share the same Foundry agent, the same OpenAPI tool contract, and the same Microsoft Entra ID app registration (`prior-auth-api` with app role `PriorAuth.Read`). Only the Logic App hosting model differs.
 
@@ -54,8 +54,8 @@ Full narrative and Mermaid diagram: [`docs/architecture.md`](docs/architecture.m
 │   ├── walkthrough.md            Deploy → register → chat, end-to-end
 │   ├── healthcare-scenario.md    Business framing + productionization notes
 │   ├── security.md               Token flow, roles, MI, Authorization Policy details
-│   ├── sfi-tenant-notes.md       Which SFI policies affect this workload and how to design around them
-│   ├── vnet-hardening.md         Optional Private Endpoint + VNet integration (required for Standard LA in SFI tenants)
+│   ├── sfi-tenant-notes.md       Enterprise storage policy considerations and deployment implications
+│   ├── vnet-hardening.md         Private Endpoint + VNet integration (needed for Standard LA when public storage access is disabled)
 │   └── troubleshooting.md
 ├── infra/                         Bicep infrastructure
 │   ├── main.bicep                Standard LA variant (WS1) — Storage + Plan + Site + UAMI + LAW
@@ -133,4 +133,3 @@ The classic `Add Logic App action` wizard ([MS Learn](https://learn.microsoft.co
 ## License
 
 [MIT](LICENSE).
-
